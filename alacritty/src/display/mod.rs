@@ -655,6 +655,7 @@ impl Display {
         message_buffer: &MessageBuffer,
         search_state: &mut SearchState,
         config: &UiConfig,
+        tab_count: usize,
     ) where
         T: EventListener,
     {
@@ -703,7 +704,16 @@ impl Display {
         let search_active = search_state.history_index.is_some();
         let message_bar_lines = message_buffer.message().map_or(0, |m| m.text(&new_size).len());
         let search_lines = usize::from(search_active);
-        new_size.reserve_lines(message_bar_lines + search_lines);
+
+        // Determine if tab bar should be shown based on config.
+        use crate::config::window::ShowTabBar;
+        let show_tab_bar = match config.window.show_tab_bar {
+            ShowTabBar::Always => true,
+            ShowTabBar::Multiple => tab_count > 1,
+            ShowTabBar::Never => false,
+        };
+        let tab_bar_lines = if show_tab_bar { 1 } else { 0 };
+        new_size.reserve_lines(message_bar_lines + search_lines + tab_bar_lines);
 
         // Update resize increments.
         if config.window.resize_increments {
@@ -779,6 +789,7 @@ impl Display {
         message_buffer: &MessageBuffer,
         config: &UiConfig,
         search_state: &mut SearchState,
+        tab_info: Option<(&[String], usize)>,
     ) {
         // Collect renderable content before the terminal is dropped.
         let mut content = RenderableContent::new(config, self, &terminal, search_state);
@@ -837,6 +848,11 @@ impl Display {
 
         self.renderer.clear(background_color, config.window_opacity());
         let mut lines = RenderLines::new();
+
+        // Draw tab bar if tab_info is provided.
+        if let Some((tab_titles, active_index)) = tab_info {
+            self.draw_tab_bar(config, tab_titles, active_index);
+        }
 
         // Optimize loop hint comparator.
         let has_highlighted_hint =
@@ -1323,6 +1339,82 @@ impl Display {
             &self.size_info,
             &mut self.glyph_cache,
         );
+    }
+
+    /// Draw tab bar at the top of the window.
+    fn draw_tab_bar(
+        &mut self,
+        config: &UiConfig,
+        tab_titles: &[String],
+        active_tab_index: usize,
+    ) {
+        if tab_titles.is_empty() {
+            return;
+        }
+
+        // Use dedicated tab bar colors.
+        let active_fg = config.colors.tab_bar_active_foreground();
+        let active_bg = config.colors.tab_bar_active_background();
+        let inactive_fg = config.colors.tab_bar_inactive_foreground();
+        let inactive_bg = config.colors.tab_bar_inactive_background();
+
+        let num_cols = self.size_info.columns();
+        let mut col = 0;
+
+        // Draw each tab.
+        for (index, title) in tab_titles.iter().enumerate() {
+            if col >= num_cols {
+                break; // No more space for tabs.
+            }
+
+            let is_active = index == active_tab_index;
+            let (fg, bg) = if is_active { (active_fg, active_bg) } else { (inactive_fg, inactive_bg) };
+
+            // Format tab: " [index+1] title "
+            let tab_text = format!(" {} {} ", index + 1, title);
+            let tab_len = tab_text.len().min(num_cols - col);
+
+            // Draw the tab text at line 0 (top of viewport).
+            let point = Point::new(0usize, Column(col));
+            self.renderer.draw_string(
+                point,
+                fg,
+                bg,
+                tab_text.chars().take(tab_len),
+                &self.size_info,
+                &mut self.glyph_cache,
+            );
+
+            col += tab_len;
+
+            // Add separator between tabs.
+            if col < num_cols && index < tab_titles.len() - 1 {
+                let point = Point::new(0usize, Column(col));
+                self.renderer.draw_string(
+                    point,
+                    inactive_fg,
+                    inactive_bg,
+                    "│".chars(),
+                    &self.size_info,
+                    &mut self.glyph_cache,
+                );
+                col += 1;
+            }
+        }
+
+        // Fill remaining space with background color.
+        if col < num_cols {
+            let point = Point::new(0usize, Column(col));
+            let remaining = " ".repeat(num_cols - col);
+            self.renderer.draw_string(
+                point,
+                inactive_fg,
+                inactive_bg,
+                remaining.chars(),
+                &self.size_info,
+                &mut self.glyph_cache,
+            );
+        }
     }
 
     /// Draw render timer.

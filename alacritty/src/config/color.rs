@@ -21,6 +21,7 @@ pub struct Colors {
     pub transparent_background_colors: bool,
     pub draw_bold_text_with_bright_colors: bool,
     footer_bar: BarColors,
+    pub tab_bar: TabBarColors,
 }
 
 impl Colors {
@@ -30,6 +31,22 @@ impl Colors {
 
     pub fn footer_bar_background(&self) -> Rgb {
         self.footer_bar.background.unwrap_or(self.primary.foreground)
+    }
+
+    pub fn tab_bar_active_foreground(&self) -> Rgb {
+        self.tab_bar.active_foreground.unwrap_or(self.primary.background)
+    }
+
+    pub fn tab_bar_active_background(&self) -> Rgb {
+        self.tab_bar.active_background.unwrap_or(self.primary.foreground)
+    }
+
+    pub fn tab_bar_inactive_foreground(&self) -> Rgb {
+        self.tab_bar.inactive_foreground.unwrap_or(self.primary.foreground)
+    }
+
+    pub fn tab_bar_inactive_background(&self) -> Rgb {
+        self.tab_bar.inactive_background.unwrap_or(self.primary.background)
     }
 }
 
@@ -165,6 +182,14 @@ impl Default for MatchColors {
 pub struct BarColors {
     foreground: Option<Rgb>,
     background: Option<Rgb>,
+}
+
+#[derive(ConfigDeserialize, Serialize, Debug, Copy, Clone, Default, PartialEq, Eq)]
+pub struct TabBarColors {
+    active_foreground: Option<Rgb>,
+    active_background: Option<Rgb>,
+    inactive_foreground: Option<Rgb>,
+    inactive_background: Option<Rgb>,
 }
 
 #[derive(ConfigDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]

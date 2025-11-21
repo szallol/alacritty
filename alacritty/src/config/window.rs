@@ -65,6 +65,12 @@ pub struct WindowConfig {
 
     /// Window level.
     pub level: WindowLevel,
+
+    /// Tab bar visibility.
+    pub show_tab_bar: ShowTabBar,
+
+    /// Tab bar position.
+    pub tab_bar_position: TabBarPosition,
 }
 
 impl Default for WindowConfig {
@@ -85,6 +91,8 @@ impl Default for WindowConfig {
             decorations_theme_variant: Default::default(),
             option_as_alt: Default::default(),
             level: Default::default(),
+            show_tab_bar: Default::default(),
+            tab_bar_position: Default::default(),
         }
     }
 }
@@ -323,4 +331,26 @@ impl From<WindowLevel> for WinitWindowLevel {
             WindowLevel::AlwaysOnTop => WinitWindowLevel::AlwaysOnTop,
         }
     }
+}
+
+/// Tab bar visibility.
+#[derive(ConfigDeserialize, Serialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShowTabBar {
+    /// Show tab bar when there are multiple tabs.
+    #[default]
+    Multiple,
+    /// Always show tab bar.
+    Always,
+    /// Never show tab bar.
+    Never,
+}
+
+/// Tab bar position.
+#[derive(ConfigDeserialize, Serialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabBarPosition {
+    /// Tab bar at the top.
+    #[default]
+    Top,
+    /// Tab bar at the bottom.
+    Bottom,
 }

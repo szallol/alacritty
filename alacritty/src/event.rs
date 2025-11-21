@@ -389,6 +389,47 @@ impl ApplicationHandler<Event> for Processor {
                     error!("Could not open window: {err:?}");
                 }
             },
+            // Tab management events.
+            (EventType::CreateTab, Some(window_id)) => {
+                if let Some(window_context) = self.windows.get_mut(window_id) {
+                    if let Err(err) = window_context.create_new_tab(&self.proxy) {
+                        error!("Failed to create new tab: {err}");
+                    }
+                }
+            },
+            (EventType::CloseTab, Some(window_id)) => {
+                if let Some(window_context) = self.windows.get_mut(window_id) {
+                    let should_close_window = !window_context.close_tab(window_context.active_tab_index());
+                    if should_close_window {
+                        // Close the window if last tab was closed.
+                        self.windows.remove(window_id);
+                        if self.windows.is_empty() {
+                            event_loop.exit();
+                        }
+                    }
+                }
+            },
+            (EventType::SelectTab(index), Some(window_id)) => {
+                if let Some(window_context) = self.windows.get_mut(window_id) {
+                    window_context.switch_to_tab(index);
+                }
+            },
+            (EventType::SelectNextTab, Some(window_id)) => {
+                if let Some(window_context) = self.windows.get_mut(window_id) {
+                    window_context.select_next_tab();
+                }
+            },
+            (EventType::SelectPreviousTab, Some(window_id)) => {
+                if let Some(window_context) = self.windows.get_mut(window_id) {
+                    window_context.select_previous_tab();
+                }
+            },
+            (EventType::SelectLastTab, Some(window_id)) => {
+                if let Some(window_context) = self.windows.get_mut(window_id) {
+                    let last_index = window_context.tab_count().saturating_sub(1);
+                    window_context.switch_to_tab(last_index);
+                }
+            },
             // Process events affecting all windows.
             (payload, None) => {
                 let event = WinitEvent::UserEvent(Event::new(payload, None));
@@ -551,6 +592,12 @@ pub enum EventType {
     BlinkCursorTimeout,
     SearchNext,
     Frame,
+    CreateTab,
+    CloseTab,
+    SelectTab(usize),
+    SelectNextTab,
+    SelectPreviousTab,
+    SelectLastTab,
 }
 
 impl From<TerminalEvent> for EventType {
@@ -676,6 +723,7 @@ pub struct ActionContext<'a, N, T> {
     pub dirty: &'a mut bool,
     pub occluded: &'a mut bool,
     pub preserve_title: bool,
+    pub tab_title: &'a mut String,
     #[cfg(not(windows))]
     pub master_fd: RawFd,
     #[cfg(not(windows))]
@@ -1492,6 +1540,35 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     fn scheduler_mut(&mut self) -> &mut Scheduler {
         self.scheduler
     }
+
+    fn create_new_tab(&mut self) {
+        let _ = self.event_proxy.send_event(Event::new(EventType::CreateTab, self.display.window.id()));
+    }
+
+    fn close_current_tab(&mut self) {
+        let _ = self.event_proxy.send_event(Event::new(EventType::CloseTab, self.display.window.id()));
+    }
+
+    fn select_tab(&mut self, index: usize) {
+        let _ = self.event_proxy.send_event(Event::new(EventType::SelectTab(index), self.display.window.id()));
+    }
+
+    fn select_next_tab(&mut self) {
+        let _ = self.event_proxy.send_event(Event::new(EventType::SelectNextTab, self.display.window.id()));
+    }
+
+    fn select_previous_tab(&mut self) {
+        let _ = self.event_proxy.send_event(Event::new(EventType::SelectPreviousTab, self.display.window.id()));
+    }
+
+    fn select_last_tab(&mut self) {
+        let _ = self.event_proxy.send_event(Event::new(EventType::SelectLastTab, self.display.window.id()));
+    }
+
+    fn update_tab_title(&mut self, title: String) {
+        *self.tab_title = title;
+        *self.dirty = true;
+    }
 }
 
 impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
@@ -1862,14 +1939,18 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                 EventType::Terminal(event) => match event {
                     TerminalEvent::Title(title) => {
                         if !self.ctx.preserve_title && self.ctx.config.window.dynamic_title {
-                            self.ctx.window().set_title(title);
+                            self.ctx.window().set_title(title.clone());
                         }
+                        // Update tab title with terminal title.
+                        self.ctx.update_tab_title(title);
                     },
                     TerminalEvent::ResetTitle => {
                         let window_config = &self.ctx.config.window;
                         if !self.ctx.preserve_title && window_config.dynamic_title {
                             self.ctx.display.window.set_title(window_config.identity.title.clone());
                         }
+                        // Reset tab title to default.
+                        self.ctx.update_tab_title("Tab".to_string());
                     },
                     TerminalEvent::Bell => {
                         // Set window urgency hint when window is not focused.
@@ -1928,6 +2009,12 @@ impl input::Processor<EventProxy, ActionContext<'_, Notifier, EventProxy>> {
                 EventType::Message(_)
                 | EventType::ConfigReload(_)
                 | EventType::CreateWindow(_)
+                | EventType::CreateTab
+                | EventType::CloseTab
+                | EventType::SelectTab(_)
+                | EventType::SelectNextTab
+                | EventType::SelectPreviousTab
+                | EventType::SelectLastTab
                 | EventType::Frame => (),
             },
             WinitEvent::WindowEvent { event, .. } => {
